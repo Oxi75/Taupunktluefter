@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "Taupunktlüfter-rescue")(type "Legacy")(uri "${KIPRJMOD}/Taupunktlueftung-rescue.lib")(options "")(descr ""))
+)
