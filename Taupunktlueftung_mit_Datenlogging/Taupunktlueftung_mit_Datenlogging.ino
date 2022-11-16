@@ -7,9 +7,11 @@
 // Ulrich Schmerold
 // 3/2022
 //////////////////////////////////////////////////////////////////////////////
-// TUER-Sensor and Power saving Extensions by Andreas Schmack 9/2022
+// Extensions by Andreas Schmack
+// 09/2022 - V3.0 TÜR-Sensor and Power saving Extensions by Andreas Schmack
+// 11/2022 - V3.1 Sensor-Restart on Startup 
 //////////////////////////////////////////////////////////////////////////////
-#define Software_version "Version: 3.0"
+#define Software_version "Version: 3.1"
 
 // Dieser Code benötig zwingend die folgenden Libraries:
 #include "DHT.h"
@@ -25,6 +27,7 @@ tmElements_t tm;
 #define RELAIPIN 6     // Anschluss des LüfterRelais
 #define DHTPIN_I 4     // Datenleitung für den DHT Sensor I (innen)
 #define DHTPIN_A 5     // Datenleitung für den DHT Sensor A (außen)
+#define SENSPWR  8     // Spannungsversorgung der Sensoren via Ditital-Out
 
 #define TUER1PIN A3    // Tür1-Kontakt 
 #define TUER2PIN A1    // Tür1-Kontakt 
@@ -41,6 +44,8 @@ tmElements_t tm;
 #define RELAIS_AUS LOW
 #define LED_EIN LOW
 #define LED_AUS HIGH
+#define SENS_AUS LOW
+#define SENS_EIN HIGH
 #define TFT_EIN LOW
 #define TFT_AUS HIGH
 
@@ -91,6 +96,10 @@ void setup()
 
     pinMode(RELAIPIN, OUTPUT);          // Relaispin als Output definieren
     digitalWrite(RELAIPIN, RELAIS_EIN); // Relais während dem Start zur Kontrolle einschalten
+
+    pinMode(SENSPWR, OUTPUT);           // Sensor-Power als Output definieren
+    digitalWrite(SENSPWR, SENS_AUS);    // Sensoren einschalten
+    
 
     pinMode(TUERLEDPIN, OUTPUT);        // LED-Pin als Output definieren
     digitalWrite(TUERLEDPIN, LED_EIN);  // LED während dem Starten einschalten
@@ -143,7 +152,9 @@ void setup()
     lcd.createChar(3, GrossUE);
 
     //--------------------------- Sensoren starten ------------------------------------------------------
-    dht1.begin(); // Sensoren starten
+    digitalWrite(SENSPWR, SENS_EIN);    // Sensoren einschalten
+    delay (500);                        // Zeit um Sensoren zu versorgen
+    dht1.begin();                       // Sensoren starten
     dht2.begin();
 
     TFT_AN_ZEIT = millis();
@@ -175,7 +186,7 @@ void loop()
             fehler = true;
         } else {
             lcd.setCursor(0,1);
-            lcd.print(F("Sensor 1 in Ordnung"));
+            lcd.print(F("Sensor I in Ordnung"));
         }
 
         LCD_EIN_AUS();  // Prüfen ob TFT Backlight aktiviert bzw. deaktiviert werden muss
@@ -186,11 +197,11 @@ void loop()
         {
             // Serial.println(F("Fehler beim Auslesen vom 2. Sensor!"));
             lcd.setCursor(0,2);
-            lcd.print(F("Fehler Sensor 2"));
+            lcd.print(F("Fehler Sensor Aussen"));
             fehler = true;
         } else {
             lcd.setCursor(0,2);
-            lcd.print(F("Sensor 2 in Ordnung"));
+            lcd.print(F("Sensor A in Ordnung"));
         }
 
         delay(2000);  // Zeit um das Display zu lesen
