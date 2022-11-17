@@ -3,6 +3,14 @@ Das Original mit den wichtigsten Fragen rund um den Taupunktlüfter beantwortet 
 
 Das Original Github Projekt liegt hier: https://github.com/MakeMagazinDE/Taupunktluefter
 
+# Taupunktlüfter mit Datenlogger V3.1
+
+Sensorspannungsversorgung nicht mehr direkt über +5V sondern über Digital Out 8
+des Arduinos angebunden. Hintergrund: Starke Störungen auf den Sensorleitungen,
+konnte System in eine Endlos-Reboot-Schleife schicken (permanenter
+Sensorfehler). Ende der Schleife erst durch hartes Abschalten der
+(Sensor)Spannungsversorgung.
+
 # Taupunktlüfter mit Datenlogger V3.0
 
 * Unterstützung von bis zu vier Tür-Sensoren. D.h. wenn der entsprechende Sensor
