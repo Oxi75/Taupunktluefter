@@ -56,8 +56,8 @@ bool fehler = true;
 #define DHTTYPE_A DHT22   // DHT 22  
 
 // ***************************   Korrekturwerte der einzelnen Sensorwerten.  ***************
-#define Korrektur_t_1  -3   // Korrekturwert Innensensor Temperatur
-#define Korrektur_t_2  -4   // Korrekturwert Außensensor Temperatur
+#define Korrektur_t_1  0    // Korrekturwert Innensensor Temperatur
+#define Korrektur_t_2  0    // Korrekturwert Außensensor Temperatur
 #define Korrektur_h_1  0    // Korrekturwert Innensensor Luftfeuchtigkeit
 #define Korrektur_h_2  0    // Korrekturwert Außensensor Luftfeuchtigkeit
 //******************************************************************************************
