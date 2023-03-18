@@ -10,8 +10,9 @@
 // Extensions by Andreas Schmack
 // 09/2022 - V3.0 TÜR-Sensor and Power saving Extensions by Andreas Schmack
 // 11/2022 - V3.1 Sensor-Restart on Startup 
+// 03/2023 - V3.2 Limit for switching on the van set to 4°C (before 5°C), header names adapted
 //////////////////////////////////////////////////////////////////////////////
-#define Software_version "Version: 3.1"
+#define Software_version "Version: 3.2"
 
 // Dieser Code benötig zwingend die folgenden Libraries:
 #include "DHT.h"
@@ -38,7 +39,7 @@ tmElements_t tm;
 #define TUERLEDPIN 7   // Zeigt an, dass mindestens eine Tür offen ist
 
 #define TFTANPIN 2     // TFT Backlight on
-#define TFTEINZEIT 20000 // TFT bleibt nach Aktivierung ms an
+#define TFTEINZEIT 40000 // TFT bleibt nach Aktivierung ms an
 
 #define RELAIS_EIN HIGH
 #define RELAIS_AUS LOW
@@ -56,26 +57,26 @@ bool fehler = true;
 #define DHTTYPE_A DHT22   // DHT 22  
 
 // ***************************   Korrekturwerte der einzelnen Sensorwerten.  ***************
-#define Korrektur_t_1  0    // Korrekturwert Innensensor Temperatur
-#define Korrektur_t_2  0    // Korrekturwert Außensensor Temperatur
-#define Korrektur_h_1  0    // Korrekturwert Innensensor Luftfeuchtigkeit
-#define Korrektur_h_2  0    // Korrekturwert Außensensor Luftfeuchtigkeit
+#define Korrektur_TI  0    // Korrekturwert Innensensor Temperatur
+#define Korrektur_TA  0    // Korrekturwert Außensensor Temperatur
+#define Korrektur_HI  0    // Korrekturwert Innensensor Luftfeuchtigkeit
+#define Korrektur_HA  0    // Korrekturwert Außensensor Luftfeuchtigkeit
 //******************************************************************************************
 
-#define SCHALTmin   5.0   // minimaler Taupuntunterschied, bei dem das Relais schaltet
+#define SCHALTmin   3.0   // minimaler Taupuntunterschied, bei dem das Relais schaltet
 #define HYSTERESE   1.0   // Abstand von Ein- und Ausschaltpunkt
-#define TEMP1_min  10.0   // Minimale Innentemperatur, bei der die Lüftung aktiviert wird
-#define TEMP2_min -10.0   // Minimale Außentemperatur, bei der die Lüftung aktiviert wird
+#define TEMP_I_min  10.0   // Minimale Innentemperatur, bei der die Lüftung aktiviert wird
+#define TEMP_A_min -10.0   // Minimale Außentemperatur, bei der die Lüftung aktiviert wird
 
-DHT dht1(DHTPIN_I, DHTTYPE_I);  //Der Innensensor wird ab jetzt mit dht1 angesprochen
-DHT dht2(DHTPIN_A, DHTTYPE_A);  //Der Außensensor wird ab jetzt mit dht2 angesprochen
+DHT dht_I(DHTPIN_I, DHTTYPE_I);  //Der Innensensor wird ab jetzt mit dht_I angesprochen
+DHT dht_A(DHTPIN_A, DHTTYPE_A);  //Der Außensensor wird ab jetzt mit dht_A angesprochen
 
 LiquidCrystal_I2C lcd(0x27,20,4); // LCD Display I2C Addresse und Displaygröße setzen
 
 uint32_t TFT_AN_ZEIT;   //Zeitstempel für TFT-Backlight-Abschaltung
 
 //++++++++++++++++++++++++++++++++ Variablen für das Datenlogging ***************************************
-#define Headerzeile F("Datum|Zeit;Temperatur_S1;Feuchte_H1;Taupunkt_1;Temperatur_S2;Feuchte_H2;Taupunkt_2;Luefter_Ein/Aus;Laufzeit_Luefter;")
+#define Headerzeile F("Datum|Zeit;Temp. innen;Feuchte innen;Taupunkt innen;Temp. außen;Feuchte außen;Taupunkt außen;Luefter Ein/Aus;Laufzeit Luefter;")
 
 #define logFileName F("Luefter1.csv")  // Name der Datei zum Abspeichern der Daten (Dateinamen-Format: 8.3)!!!!
 #define LogInterval 10                   // Wie oft werden die Messwerte aufgezeichnet ( 5 = alle 5 Minuten)
@@ -83,8 +84,8 @@ uint32_t TFT_AN_ZEIT;   //Zeitstempel für TFT-Backlight-Abschaltung
 bool logging = true;                    // Sollen die Daten überhaupt protokolliert werden?
 String LogData = "" ;                   // Variable zum Zusammensetzen des Logging-Strings.
 char stamp[17];                         // Variable für den Zeitstempel.
-unsigned int LuefterStart = 0;          // Wann wurde der Lüfter eingeschaltet?
-unsigned int LuefterLaufzeit = 0;       // Wie lange lief der Lüfter?
+int32_t LuefterStart = -1;          // Wann wurde der Lüfter eingeschaltet?
+int32_t LuefterLaufzeit = -1;       // Wie lange lief der Lüfter?
 char StrLuefterzeit[6];                 // Lüfterlaufzeit als String zur weiteren Verwendung.
 uint8_t Today = 0;                      // Das heutige Datum (nur Tag), zur Speicherung bei Tageswechsel.
 bool Tageswechsel=false;
@@ -92,6 +93,10 @@ bool Tageswechsel=false;
 
 void setup()
 {
+    Serial.begin(19200);
+    Serial.print("Taupunktlueftungssystem ");
+    Serial.println(Software_version);
+
     wdt_enable(WDTO_8S); // Watchdog timer auf 8 Sekunden stellen
 
     pinMode(RELAIPIN, OUTPUT);          // Relaispin als Output definieren
@@ -154,8 +159,8 @@ void setup()
     //--------------------------- Sensoren starten ------------------------------------------------------
     digitalWrite(SENSPWR, SENS_EIN);    // Sensoren einschalten
     delay (500);                        // Zeit um Sensoren zu versorgen
-    dht1.begin();                       // Sensoren starten
-    dht2.begin();
+    dht_I.begin();                      // Sensoren starten
+    dht_A.begin();
 
     TFT_AN_ZEIT = millis();
     digitalWrite(RELAIPIN, RELAIS_AUS); // Relais ausschalten
@@ -168,10 +173,10 @@ void loop()
 
     // Sensoren auslesen
     RTC.read(tm);
-    float h1 = dht1.readHumidity()+Korrektur_h_1;       // Innenluftfeuchtigkeit auslesen und unter „h1“ speichern
-    float t1 = dht1.readTemperature()+ Korrektur_t_1;   // Innentemperatur auslesen und unter „t1“ speichern
-    float h2 = dht2.readHumidity()+Korrektur_h_2;       // Außenluftfeuchtigkeit auslesen und unter „h2“ speichern
-    float t2 = dht2.readTemperature()+ Korrektur_t_2;   // Außentemperatur auslesen und unter „t2“ speichern
+    float hI = dht_I.readHumidity()+Korrektur_HI;       // Innenluftfeuchtigkeit auslesen und unter „hI“ speichern
+    float t_I = dht_I.readTemperature()+ Korrektur_TI;   // Innentemperatur auslesen und unter „t_I“ speichern
+    float hA = dht_A.readHumidity()+Korrektur_HA;       // Außenluftfeuchtigkeit auslesen und unter „hA“ speichern
+    float t_A = dht_A.readTemperature()+ Korrektur_TA;   // Außentemperatur auslesen und unter „t_A“ speichern
 
     if (fehler == true)  // Prüfen, ob gültige Werte von den Sensoren kommen
     {
@@ -179,7 +184,7 @@ void loop()
         lcd.setCursor(2,0);
         lcd.print(F("Teste Sensoren.."));
         fehler = false;
-        if (isnan(h1) || isnan(t1) || h1 > 100 || h1 < 1 || t1 < -40 || t1 > 80 )  {
+        if (isnan(hI) || isnan(t_I) || hI > 100 || hI < 1 || t_I < -40 || t_I > 80 )  {
             // Serial.println(F("Fehler beim Auslesen vom 1. Sensor!"));
             lcd.setCursor(0,1);
             lcd.print(F("Fehler Sensor Innen"));
@@ -193,7 +198,7 @@ void loop()
         delay(2000);  // Zeit um das Display zu lesen
         LCD_EIN_AUS();  // Prüfen ob TFT Backlight aktiviert bzw. deaktiviert werden muss
 
-        if (isnan(h2) || isnan(t2) || h2 > 100 || h2 < 1 || t2 < -40 || t2  > 80) 
+        if (isnan(hA) || isnan(t_A) || hA > 100 || hA < 1 || t_A < -40 || t_A  > 80) 
         {
             // Serial.println(F("Fehler beim Auslesen vom 2. Sensor!"));
             lcd.setCursor(0,2);
@@ -206,7 +211,7 @@ void loop()
 
         delay(2000);  // Zeit um das Display zu lesen
     }
-    if (isnan(h1) || isnan(t1) || isnan(h2) || isnan(t2)) fehler = true;
+    if (isnan(hI) || isnan(t_I) || isnan(hA) || isnan(t_A)) fehler = true;
 
     LCD_EIN_AUS();  // Prüfen ob TFT Backlight aktiviert bzw. deaktiviert werden muss
 
@@ -269,39 +274,39 @@ void loop()
 
 
 //**** Taupunkte errechnen********
-    float Taupunkt_1 = taupunkt(t1, h1);   //Taupunkt innen
-    float Taupunkt_2 = taupunkt(t2, h2);   //Taupunkt außen
+    float Taupunkt_I = taupunkt(t_I, hI);   //Taupunkt innen
+    float Taupunkt_A = taupunkt(t_A, hA);   //Taupunkt außen
 
     // Werteausgabe auf dem I2C-Display
     lcd.clear();
     LCD_EIN_AUS();  // Prüfen ob TFT Backlight aktiviert bzw. deaktiviert werden muss
     lcd.setCursor(0,0);
     lcd.print(F("SI: "));
-    lcd.print(t1);
+    lcd.print(t_I);
     lcd.write((uint8_t)0); // Sonderzeichen °C
     lcd.write(('C'));
     lcd.write((uint8_t)1); // Sonderzeichen |
-    lcd.print(h1);
+    lcd.print(hI);
     lcd.print(F(" %"));
 
     lcd.setCursor(0,1);
     lcd.print(F("SA: "));
-    lcd.print(t2);
+    lcd.print(t_A);
     lcd.write((uint8_t)0); // Sonderzeichen °C
     lcd.write(('C'));
     lcd.write((uint8_t)1); // Sonderzeichen |
-    lcd.print(h2);
+    lcd.print(hA);
     lcd.print(F(" %"));
 
     lcd.setCursor(0,2);
     lcd.print(F("Taupunkt I: "));
-    lcd.print(Taupunkt_1);
+    lcd.print(Taupunkt_I);
     lcd.write((uint8_t)0); // Sonderzeichen °C
     lcd.write(('C'));
 
     lcd.setCursor(0,3);
     lcd.print(F("Taupunkt A: "));
-    lcd.print(Taupunkt_2);
+    lcd.print(Taupunkt_A);
     lcd.write((uint8_t)0); // Sonderzeichen °C
     lcd.write(('C'));
 
@@ -311,12 +316,12 @@ void loop()
     lcd.clear();
     lcd.setCursor(0,0);
 
-    float DeltaTP = Taupunkt_1 - Taupunkt_2;
+    float DeltaTP = Taupunkt_I - Taupunkt_A;
 
     if (DeltaTP > (SCHALTmin + HYSTERESE)) rel = true;    //Taupunkt-Unterschied überhalb Schaltschwelle  => Einschalten
     if (DeltaTP < (SCHALTmin)) rel = false;               //Taupunkt-Unterschied unterhalb Schaltschwelle => Ausschalten
-    if (t1 < TEMP1_min) rel = false;                      //Temperatur kleiner Minimal-Temperatur => Ausschalten
-    if (t2 < TEMP2_min) rel = false;                      //Temperatur kleiner Minimal-Temperatur => Ausschalten
+    if (t_I < TEMP_I_min) rel = false;                    //Temperatur kleiner Minimal-Temperatur => Ausschalten
+    if (t_A < TEMP_A_min) rel = false;                    //Temperatur kleiner Minimal-Temperatur => Ausschalten
     if (TUERSTATUS == OFFEN) rel = false;                 //Tür(en) nicht geschlossen => Ausschalten
 
     if (rel == true)
@@ -325,7 +330,8 @@ void loop()
         lcd.print("L");         //Lüftung: AN
         lcd.write((uint8_t)3);  // ü
         lcd.print("ftung: AN");
-        if (LuefterStart <=0 && logging == true) {
+        if ((LuefterStart < 0) && (logging == true))
+        {
             LuefterStart = tm.Hour*60 + tm.Minute;
         }
     } else {
@@ -333,9 +339,10 @@ void loop()
         lcd.print("L");         //Lüftung: AUS
         lcd.write((uint8_t)3);  // ü
         lcd.print("ftung : AUS");
-        if( LuefterStart > 0 && logging == true) {
+        if ((LuefterStart >= 0) && (logging == true))
+        {
             LuefterLaufzeit += (tm.Hour*60 + tm.Minute - LuefterStart);
-            LuefterStart = 0;
+            LuefterStart = -1;
         }
     }
 
@@ -366,33 +373,36 @@ void loop()
             snprintf(StrLuefterzeit,sizeof(StrLuefterzeit),"%d;",LuefterLaufzeit);
             Today = tm.Day;
             LuefterLaufzeit = 0;
-        } else {
+        } else
+        {
             strcpy( StrLuefterzeit, "0;");     // Kein Tageswechsel, nur Platzhalter abspeichern
         }
 
         char buff[4];
         LogData="";
-        dtostrf(t1, 2, 1, buff);
+        dtostrf(t_I, 2, 1, buff);
         LogData += buff ;
         LogData += ';';
-        dtostrf(h1, 2, 1, buff);
+        dtostrf(hI, 2, 1, buff);
         LogData += buff ;
         LogData += ';';
-        dtostrf(Taupunkt_1, 2, 1, buff);
+        dtostrf(Taupunkt_I, 2, 1, buff);
         LogData += buff ;
         LogData += ';';
-        dtostrf(t2, 2, 1, buff);
+        dtostrf(t_A, 2, 1, buff);
         LogData += buff ;
         LogData += ';';
-        dtostrf(h2, 2, 1, buff);
+        dtostrf(hA, 2, 1, buff);
         LogData += buff;
         LogData += ';';
-        dtostrf(Taupunkt_2, 2, 1, buff);
+        dtostrf(Taupunkt_A, 2, 1, buff);
         LogData += buff;
         LogData += ';';
         if (rel == true) LogData +="1;";
         else LogData += "0;";
         LogData += StrLuefterzeit;
+
+        Serial.println(LogData);
 
         save_to_SD(); // Daten auf die SD Karte speichern
     }
